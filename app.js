@@ -2,8 +2,7 @@
 const $ = (id) => document.getElementById(id);
 const recBtn = $('rec'), playBtn = $('play'), timeEl = $('time'), msgEl = $('msg');
 
-let recorder = null, stream = null, chunks = [], startedAt = 0, timer = null;
-let audioCtx = null;
+let recorder = null, stream = null, startedAt = 0, timer = null;
 let items = [];            // gespeicherte Aufnahmen, neueste zuerst: { id, date, dur, wav }
 const urls = new Map();    // id -> Objekt-URL zum Abspielen
 const player = new Audio();
@@ -48,52 +47,92 @@ function pickType() {
   return ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
 }
 
+let starting = false;
+
+// Mikrofon einmal holen und für weitere Aufnahmen wiederverwenden
+// (das iPhone hängt sonst manchmal beim zweiten Mal)
+async function getMic() {
+  if (stream && stream.getAudioTracks().some((t) => t.readyState === 'live')) return stream;
+  stream = await Promise.race([
+    navigator.mediaDevices.getUserMedia({ audio: true }),
+    new Promise((_, fail) => setTimeout(() => fail(new Error('timeout')), 8000)),
+  ]);
+  return stream;
+}
+function releaseMic() {
+  if (recorder) return;
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = null;
+}
+// Mikrofon freigeben, wenn die App in den Hintergrund geht
+document.addEventListener('visibilitychange', () => { if (document.hidden) { if (recorder) stopRecording(); else releaseMic(); } });
+
 async function startRecording() {
   if (!navigator.mediaDevices || !window.MediaRecorder) { msg('Dieses Handy oder dieser Browser kann leider keine Töne aufnehmen.'); return; }
+  if (starting) return;
+  starting = true;
   stopPlayback();
-  // Im Tipp anlegen, sonst blockiert Safari den Ton
-  if (!audioCtx) { const AC = window.AudioContext || window.webkitAudioContext; audioCtx = new AC(); }
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    try {
+      await getMic();
+    } catch (e) {
+      stream = null;
+      msg(e && e.message === 'timeout'
+        ? 'Das Mikrofon antwortet nicht. Bitte die App ganz schließen und neu öffnen.'
+        : 'Ohne Mikrofon geht es nicht. Bitte den Zugriff aufs Mikrofon erlauben (in den Einstellungen bei Safari bzw. Chrome).');
+      return;
+    }
+    const type = pickType();
+    const rec = type ? new MediaRecorder(stream, { mimeType: type }) : new MediaRecorder(stream);
+    const parts = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) parts.push(e.data); };
+    rec.onstop = () => finishRecording(rec, parts);
+    rec.start();
+    recorder = rec;
+    startedAt = Date.now();
+    recBtn.classList.add('recording');
+    $('recLabel').textContent = 'Stopp';
+    playBtn.disabled = true;
+    timeEl.textContent = '0:00';
+    timer = setInterval(() => { timeEl.textContent = fmt((Date.now() - startedAt) / 1000); }, 250);
+    msg('Nimmt auf … Zum Beenden nochmal tippen.');
   } catch (e) {
-    msg('Ohne Mikrofon geht es nicht. Bitte den Zugriff aufs Mikrofon erlauben (in den Einstellungen bei Safari bzw. Chrome).');
-    return;
+    recorder = null;
+    releaseMic();
+    msg('Aufnehmen hat nicht geklappt. Bitte nochmal tippen.');
+  } finally {
+    starting = false;
   }
-  const type = pickType();
-  recorder = type ? new MediaRecorder(stream, { mimeType: type }) : new MediaRecorder(stream);
-  chunks = [];
-  recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-  recorder.onstop = finishRecording;
-  recorder.start();
-  startedAt = Date.now();
-  recBtn.classList.add('recording');
-  $('recLabel').textContent = 'Stopp';
-  playBtn.disabled = true;
-  timeEl.textContent = '0:00';
-  timer = setInterval(() => { timeEl.textContent = fmt((Date.now() - startedAt) / 1000); }, 250);
-  msg('Nimmt auf … Zum Beenden nochmal tippen.');
 }
 
 function stopRecording() {
   clearInterval(timer);
   recBtn.classList.remove('recording');
   $('recLabel').textContent = 'Aufnehmen';
-  if (recorder && recorder.state !== 'inactive') recorder.stop();
+  const rec = recorder;
+  // Knopf sofort wieder freigeben, auch wenn das Handy das Ende verspätet meldet
+  recorder = null;
+  if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch (e) {} }
+  render();
 }
 
-async function finishRecording() {
-  const blob = new Blob(chunks, { type: recorder.mimeType || chunks[0]?.type || '' });
-  if (stream) stream.getTracks().forEach((t) => t.stop());
-  stream = null; recorder = null;
+// Zum Entschlüsseln ein Offline-Kontext: der stört das Mikrofon auf dem iPhone nicht
+function decode(data) {
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const ctx = new OAC(1, 1, 44100);
+  return new Promise((ok, fail) => {
+    const p = ctx.decodeAudioData(data, ok, fail);
+    if (p && p.then) p.then(ok, fail);
+  });
+}
+
+async function finishRecording(rec, parts) {
+  const blob = new Blob(parts, { type: rec.mimeType || (parts[0] && parts[0].type) || '' });
   if (!blob.size) { msg('Die Aufnahme war leer. Bitte nochmal versuchen.'); render(); return; }
   msg('Einen Moment …');
   let buf;
   try {
-    const data = await blob.arrayBuffer();
-    buf = await new Promise((ok, fail) => {
-      const p = audioCtx.decodeAudioData(data, ok, fail);
-      if (p && p.then) p.then(ok, fail);
-    });
+    buf = await decode(await blob.arrayBuffer());
   } catch (e) {
     msg('Die Aufnahme konnte nicht umgedreht werden. Bitte nochmal versuchen.');
     render();
