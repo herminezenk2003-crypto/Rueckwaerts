@@ -1,0 +1,26 @@
+:root {
+  --bg: #f5f3fa; --text: #1f1b2b; --muted: #6e6880; --accent: #6a4bc4; --rec: #d6453d; --on: #ffffff; --off: #d9d4e6;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #15131c; --text: #ece8f6; --muted: #9a93ad; --accent: #a68cf0; --rec: #f0675e; --on: #15131c; --off: #2e2a3b; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+main { min-height: 100%; max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; gap: 16px;
+  padding: calc(env(safe-area-inset-top) + 24px) 24px calc(env(safe-area-inset-bottom) + 24px); }
+h1 { margin: 0 0 24px; font-size: 32px; text-align: center; letter-spacing: -.02em; }
+.big { display: flex; align-items: center; justify-content: center; gap: 14px; width: 100%; min-height: 110px; border: 0; border-radius: 28px;
+  font: inherit; font-size: 22px; font-weight: 700; color: var(--on); cursor: pointer; transition: transform .1s, opacity .2s; touch-action: manipulation; }
+.big:active { transform: scale(.97); }
+.big:disabled { background: var(--off); color: var(--muted); cursor: default; transform: none; }
+.rec { background: var(--rec); }
+.play { background: var(--accent); }
+.dot { width: 22px; height: 22px; border-radius: 50%; background: currentColor; }
+.recording .dot { border-radius: 5px; animation: pulse 1s infinite; }
+.tri { width: 0; height: 0; border-top: 13px solid transparent; border-bottom: 13px solid transparent; border-right: 22px solid currentColor; }
+.playing .tri { width: 20px; height: 22px; border: 0; border-left: 7px solid currentColor; border-right: 7px solid currentColor; }
+@keyframes pulse { 50% { opacity: .35; } }
+.time { margin: 0; text-align: center; font-size: 20px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.msg { margin: 8px 0 0; min-height: 3em; text-align: center; color: var(--muted); font-size: 15px; }
