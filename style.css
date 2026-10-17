@@ -36,3 +36,4 @@ h1 { margin: 0 0 24px; font-size: 32px; text-align: center; letter-spacing: -.02
 .round.pl .tri { border-top-width: 9px; border-bottom-width: 9px; border-right-width: 15px; }
 .round.pl.playing .tri { width: 14px; height: 16px; border: 0; border-left: 5px solid currentColor; border-right: 5px solid currentColor; }
 .round.del { width: 44px; height: 44px; background: transparent; color: var(--muted); font-size: 22px; }
+.ver { margin: auto 0 0; padding-top: 24px; text-align: center; color: var(--muted); font-size: 12px; opacity: .7; }

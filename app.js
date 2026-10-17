@@ -52,18 +52,25 @@ let starting = false;
 // Mikrofon einmal holen und für weitere Aufnahmen wiederverwenden
 // (das iPhone hängt sonst manchmal beim zweiten Mal)
 async function getMic() {
-  if (stream && stream.getAudioTracks().some((t) => t.readyState === 'live')) return stream;
+  if (stream && stream.getAudioTracks().some((t) => t.readyState === 'live' && !t.muted)) return stream;
+  releaseStream();
   stream = await Promise.race([
     navigator.mediaDevices.getUserMedia({ audio: true }),
     new Promise((_, fail) => setTimeout(() => fail(new Error('timeout')), 8000)),
   ]);
   return stream;
 }
-function releaseMic() {
-  if (recorder) return;
+function releaseStream() {
   if (stream) stream.getTracks().forEach((t) => t.stop());
   stream = null;
 }
+function releaseMic() { if (!recorder) releaseStream(); }
+// Das iPhone muss wissen, dass aufgenommen UND abgespielt wird,
+// sonst sperrt es nach dem ersten Abspielen das Mikrofon
+function allowRecording() {
+  if (navigator.audioSession) { try { navigator.audioSession.type = 'play-and-record'; } catch (e) {} }
+}
+const why = (e) => (e && (e.name || e.message) ? ' (' + (e.name || e.message) + ')' : '');
 // Mikrofon freigeben, wenn die App in den Hintergrund geht
 document.addEventListener('visibilitychange', () => { if (document.hidden) { if (recorder) stopRecording(); else releaseMic(); } });
 
@@ -71,15 +78,16 @@ async function startRecording() {
   if (!navigator.mediaDevices || !window.MediaRecorder) { msg('Dieses Handy oder dieser Browser kann leider keine Töne aufnehmen.'); return; }
   if (starting) return;
   starting = true;
-  stopPlayback();
   try {
+    stopPlayback();
+    allowRecording();
     try {
       await getMic();
     } catch (e) {
       stream = null;
       msg(e && e.message === 'timeout'
         ? 'Das Mikrofon antwortet nicht. Bitte die App ganz schließen und neu öffnen.'
-        : 'Ohne Mikrofon geht es nicht. Bitte den Zugriff aufs Mikrofon erlauben (in den Einstellungen bei Safari bzw. Chrome).');
+        : 'Ohne Mikrofon geht es nicht. Bitte den Zugriff aufs Mikrofon erlauben (in den Einstellungen bei Safari bzw. Chrome).' + why(e));
       return;
     }
     const type = pickType();
@@ -98,8 +106,8 @@ async function startRecording() {
     msg('Nimmt auf … Zum Beenden nochmal tippen.');
   } catch (e) {
     recorder = null;
-    releaseMic();
-    msg('Aufnehmen hat nicht geklappt. Bitte nochmal tippen.');
+    releaseStream();
+    msg('Aufnehmen hat nicht geklappt. Bitte nochmal tippen.' + why(e));
   } finally {
     starting = false;
   }
@@ -134,7 +142,7 @@ async function finishRecording(rec, parts) {
   try {
     buf = await decode(await blob.arrayBuffer());
   } catch (e) {
-    msg('Die Aufnahme konnte nicht umgedreht werden. Bitte nochmal versuchen.');
+    msg('Die Aufnahme konnte nicht umgedreht werden. Bitte nochmal versuchen.' + why(e));
     render();
     return;
   }
@@ -170,7 +178,6 @@ function urlFor(it) {
 
 function play(it) {
   if (playingId === it.id && !player.paused) { stopPlayback(); return; }
-  if (navigator.audioSession) { try { navigator.audioSession.type = 'playback'; } catch (e) {} }
   player.src = urlFor(it);
   player.currentTime = 0;
   playingId = it.id;
@@ -232,7 +239,10 @@ function render() {
   }
 }
 
-recBtn.addEventListener('click', () => { if (recorder) stopRecording(); else startRecording(); });
+recBtn.addEventListener('click', () => {
+  if (recorder) stopRecording();
+  else startRecording().catch((e) => { starting = false; msg('Aufnehmen hat nicht geklappt. Bitte nochmal tippen.' + why(e)); });
+});
 playBtn.addEventListener('click', () => { if (items[0]) play(items[0]); });
 
 loadAll().then((all) => {
